@@ -3,6 +3,9 @@ import logger
 log = logger.Logger.get_logger()
 from couchbase.bucket import Bucket
 import couchbase.subdocument as SD
+from couchbase.cluster import Cluster
+from couchbase.cluster import PasswordAuthenticator
+import time
 
 
 class TestMemcachedClient():
@@ -82,12 +85,17 @@ class TestSDK():
         result = False
         connection_string = 'couchbase://' + client_ip + '/' + bucket_name + '?username=' + user + '&select_bucket=true'
         log.info (" Value of connection string is - {0}".format(connection_string))
+        time.sleep(2)
         try:
-            cb = Bucket(connection_string, password=password)
+            cluster = Cluster('couchbase://' + client_ip)
+            authenticator = PasswordAuthenticator(user, password)
+            cluster.authenticate(authenticator)
+            cb = cluster.open_bucket(bucket_name)
             if cb is not None:
                 result = True
                 return cb, result
         except Exception, ex:
+            log.info ("Exception in creating an SDK connection {0}".format(ex))
             return result
 
     def set_xattr(self, sdk_conn):

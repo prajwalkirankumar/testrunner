@@ -9,6 +9,7 @@ from remote.remote_util import RemoteMachineShellConnection
 import commands
 import urllib
 import time
+from ast import literal_eval
 
 class rbacmain:
     AUDIT_ROLE_ASSIGN=8232
@@ -59,6 +60,18 @@ class rbacmain:
         status, content, header = rest._http_request(api, 'GET')
         log.info(" Retrieve User Roles - Status - {0} -- Content - {1} -- Header - {2}".format(status, content, header))
         return status, content, header
+
+    def _retrieve_user_details(self, user):
+        content = self._retrieve_user_roles()
+        content = content[1]
+        temp = ""
+        for ch in content:
+            temp = temp + ch
+        content = literal_eval(temp)
+
+        for usr in content:
+            if usr['id'] == user:
+                return usr
 
     def _set_user_roles(self,user_name,payload):
         rest = RestConnection(self.master_ip)
@@ -306,7 +319,7 @@ class rbacmain:
             tmpfile = self.PATH_SASLAUTHD_LOCAL + self.FILE_SASLAUTHD
             sftp.get('{0}'.format(tempfile), '{0}'.format(tmpfile))
             sftp.close()
-        except Exception, e:
+        except Exception as e:
             log.info (" Value of e is {0}".format(e))
         finally:
             shell.disconnect()
