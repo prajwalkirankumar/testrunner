@@ -13,14 +13,14 @@ from membase.api.rest_client import RestConnection
 # # from subprocess import Popen, PIPE
 # from security.rbac_base import RbacBase
 from basetestcase import BaseTestCase
-from testmemcached import TestMemcachedClient
-from testmemcached import TestSDK
+from .testmemcached import TestMemcachedClient
+from .testmemcached import TestSDK
 # # from membase.api.rest_client import RestConnection, RestHelper
 # # from couchbase_helper.documentgenerator import BlobGenerator
 from security.rbacmain import rbacmain
 from security.rbac_base import RbacBase
 import time
-
+from security.ldapGroupBase import ldapGroupBase
 
 class dataRoles():
 
@@ -70,7 +70,7 @@ class dataRoles():
     def _full_admin_role_master():
         per_set = {
             "name": "Full Admin Role",
-            "permissionSet": "read!True,write!True,statsRead!True,ReadMeta!True,WriteMeta!True"}
+            "permissionSet": "read!True,write!True,statsRead!True,ReadMeta!True,WriteMeta!False"}
         return per_set
 
     @staticmethod
@@ -99,6 +99,7 @@ class dataRoles():
         per_set = {
             "name": "Data Backup",
             "permissionSet": "read!True,write!True,statsRead!True,ReadMeta!True,WriteMeta!True"}
+            #Jyotsna - "permissionSet": "read!True,write!True,statsRead!True,ReadMeta!True,WriteMeta!False"}
         return per_set
 
     @staticmethod
@@ -183,6 +184,7 @@ class RbacTestMemcached(BaseTestCase):
         self.no_access_bucket_name = self.input.param("no_access_bucket_name","noaccess")
         self.all_buckets = self.input.param("all_buckets",None)
         self.ldap_users = rbacmain().returnUserList(self.user_id)
+        self.group_type = self.input.param("group_type","ExternalGrp")
         if self.no_bucket_access:
             rest.create_bucket(bucket=self.no_access_bucket_name, ramQuotaMB=100, lww=True)
         if self.auth_type == 'ldap':
@@ -202,8 +204,19 @@ class RbacTestMemcached(BaseTestCase):
                 testuser = [{'id': user[0], 'name': user[0], 'password': user[1]}]
                 RbacBase().create_user_source(testuser, 'builtin', self.master)
                 self.sleep(10)
+        elif self.auth_type == "external":
+            self.group_name = self.input.param('group_name','testgrp')
+            LDAP_GROUP_DN = "ou=Groups,dc=couchbase,dc=com"
+            ldapGroupBase().create_ldap_config(self.master)
+            ldapGroupBase().create_group_ldap(self.group_name,self.ldap_users[0],self.master)
+            final_role = self._return_roles(self.user_role)
+            if self.group_type == "ExternalGrp":
+                group_dn = 'cn=' + self.group_name + ',' + LDAP_GROUP_DN
+                ldapGroupBase().add_role_group(self.group_name, final_role, group_dn, self.master)
+                ldapGroupBase().create_grp_usr_external([self.ldap_users[0][0]], self.master, [final_role], self.group_name)
+            elif self.group_type == "NoGroup":
+                ldapGroupBase().create_grp_usr_external([self.ldap_users[0][0]], self.master, [final_role], '')
         elif self.auth_type == 'LDAPGrp':
-            from security.ldapGroupBase import ldapGroupBase
             self.group_name = self.input.param('group_name','testgrp')
             ldapGroupBase().create_group_ldap(self.group_name,self.ldap_users[0],self.master)
             group_dn = 'cn=' + self.group_name + ',' + self.LDAP_GROUP_DN
@@ -211,7 +224,6 @@ class RbacTestMemcached(BaseTestCase):
             ldapGroupBase().add_role_group(self.group_name,final_role,group_dn,self.master)
             ldapGroupBase().create_ldap_config(self.master)
         elif self.auth_type == 'InternalGrp':
-            from security.ldapGroupBase import ldapGroupBase
             self.group_name = self.input.param('group_name','testgrp')
             final_role = self._return_roles(self.user_role)
             ldapGroupBase().create_int_group(self.group_name,self.ldap_users[0],final_role,final_role,self.master)
@@ -227,7 +239,7 @@ class RbacTestMemcached(BaseTestCase):
                 final_roles = user_role_param[0]
         else:
             for role in user_role_param:
-                if role in ('data_reader', 'data_writer', 'bucket_admin', 'views_admin', 'data_dcp_reader', 'data_monitoring', 'data_backup') and bool((self.all_bucket)):
+                if role in ('data_reader', 'data_writer', 'bucket_admin', 'views_admin', 'data_dcp_reader', 'data_monitoring', 'data_backup') and bool((self.all_buckets)):
                     role = role + "[*]"
                 final_roles = final_roles + ":" + role
         return final_roles
@@ -246,9 +258,9 @@ class RbacTestMemcached(BaseTestCase):
         return action_list.split(",")
 
     def rbac_test_memcached(self):
-        time.sleep(30)
+        self.sleep(30)
         self.log.info ("Current role assignment is - {0}".format(self.user_role))
-        if self.auth_type != 'InternalGrp' and self.auth_type != 'LDAPGrp':
+        if self.auth_type != 'InternalGrp' and self.auth_type != 'LDAPGrp' and self.auth_type != 'external':
             self._assign_user_role()
         self.log.info("Current role mapping is - {0}".format(self.role_map))
         action_list = self._return_actions(self.role_map)
@@ -260,7 +272,7 @@ class RbacTestMemcached(BaseTestCase):
                     else:
                         mc, result = TestMemcachedClient().connection(self.master.ip, self.bucket_name, users[0], users[1])
                         sdk_conn, result = TestSDK().connection(self.master.ip, self.bucket_name, users[0], users[1])
-                    time.sleep(10)
+                    self.sleep(10)
                     if (result):
                         result_action = None
                         if temp_action[0] == 'write':

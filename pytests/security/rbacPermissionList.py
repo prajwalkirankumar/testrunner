@@ -269,7 +269,7 @@ class rbacPermissionList():
                 rest.init_cluster(username='Administrator', password='password')
                 rest.init_cluster_memoryQuota(memoryQuota=rest.get_nodes_self().mcdMemoryReserved)
 
-    def cluster_bucket_all_create(self,username,password,host,port=8091, servers=None,cluster=None,httpCode=None,user_role=None):
+    def cluster_ƒall_create(self,username,password,host,port=8091, servers=None,cluster=None,httpCode=None,user_role=None):
         _cluster_bucket_all_create = {
             "sampleInstall":"/sampleBuckets/install;POST",
             "Buckets":"/pools/default/buckets;POST"

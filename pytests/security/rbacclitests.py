@@ -19,6 +19,7 @@ import random
 import zlib
 import commands
 import urllib
+from security.ldapGroupBase import ldapGroupBase
 
 
 class rbacclitests(BaseTestCase):
@@ -49,10 +50,14 @@ class rbacclitests(BaseTestCase):
         self.eventID = self.input.param('id', None)
         AuditTemp = audit(host=self.master)
         self.ipAddress = self.getLocalIPAddress()
+        self.auth_type = self.input.param('auth_type','ldap')
+        self.role = self.input.param('role', 'admin')
+        if self.auth_type=='ldap':
+            ldapGroupBase().create_ldap_config(self.master)
         self.ldapUser = self.input.param('ldapUser', 'Administrator')
         self.ldapPass = self.input.param('ldapPass', 'password')
         self.source = self.input.param('source', 'ns_server')
-        self.role = self.input.param('role','admin')
+
         if self.role in ['bucket_admin','views_admin']:
             self.role = self.role + "[*]"
         self.log.info (" value of self.role is {0}".format(self.role))
@@ -133,9 +138,11 @@ class rbacclitests(BaseTestCase):
     def testClusterEdit(self):
         options = "--server-add=http://{0}:8091 --server-add-username=Administrator --server-add-password=password".format(self.servers[num + 1].ip)
         remote_client = RemoteMachineShellConnection(self.master)
-        output, error = remote_client.execute_couchbase_cli(cli_command='cluster-edit', options=options, cluster_host="localhost", user=self.ldapUser, password=self.ldapPass)
+        output, error = remote_client.execute_couchbase_cli(cli_command='cluster-edit', options=options, cluster_host="127.0.0.1:8091", user=self.ldapUser, password=self.ldapPass)
 
     def testAddRemoveNodes(self):
+
+
         if self.role in ['replication_admin','views_admin[*]','bucket_admin[*]']:
             result = "Forbidden"
         elif self.role in ['admin','cluster_admin']:
@@ -188,6 +195,7 @@ class rbacclitests(BaseTestCase):
 
 
     def testBucketCreation(self):
+        result =""
         if self.role in ['replication_admin','views_admin[*]','bucket_admin[*]']:
             result = "Forbidden"
         elif self.role in ['admin','cluster_admin']:

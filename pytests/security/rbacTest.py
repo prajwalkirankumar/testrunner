@@ -1,17 +1,12 @@
-from security.ldaptest import ldaptest
+from ldaptest import ldaptest
 from membase.api.rest_client import RestConnection
-import urllib
 from security.rbacmain import rbacmain
 import json
 from remote.remote_util import RemoteMachineShellConnection
-from newupgradebasetest import NewUpgradeBaseTest
 from security.auditmain import audit
-import commands
 import socket
-import fileinput
-import sys
-from subprocess import Popen, PIPE
 from security.rbac_base import RbacBase
+from security.ldapGroupBase import ldapGroupBase
 
 class ServerInfo():
     def __init__(self,
@@ -47,20 +42,26 @@ class rbacTest(ldaptest):
         self.ldap_users = rbacmain().returnUserList(self.user_id)
         if self.auth_type == 'ldap' or self.auth_type == 'pam':
             rbacmain(self.master, 'builtin')._delete_user('cbadminbucket')
-        rbacmain(self.master, self.auth_type)._delete_user_from_roles(self.master)
-        if self.auth_type == 'ldap':
-            rbacmain().setup_auth_mechanism(self.servers,'ldap',rest)
+        # rbacmain(self.master, self.auth_type)._delete_user_from_roles(self.master)
+        if self.auth_type == 'ldap' or self.auth_type=='LDAPGrp':
+            # rbacmain().setup_auth_mechanism(self.servers,'ldap',rest)
             self._removeLdapUserRemote(self.ldap_users)
             self._createLDAPUser(self.ldap_users)
         elif self.auth_type == "pam":
             rbacmain().setup_auth_mechanism(self.servers,'pam', rest)
             rbacmain().add_remove_local_user(self.servers, self.ldap_users, 'deluser')
             rbacmain().add_remove_local_user(self.servers, self.ldap_users,'adduser')
-        elif self.auth_type == "builtin":
+        elif self.auth_type == "builtin" or self.auth_type=='InternalGrp':
             for user in self.ldap_users:
                 testuser = [{'id': user[0], 'name': user[0], 'password': user[1]}]
                 RbacBase().create_user_source(testuser, 'builtin', self.master)
                 self.sleep(10)
+        elif self.auth_type == 'LDAPGrp':
+            self.group_name = self.input.param('group_name','testgrp')
+            LDAP_GROUP_DN = "ou=Groups,dc=couchbase,dc=com"
+            ldapGroupBase().create_group_ldap(self.group_name,self.ldap_users[0],self.master)
+            group_dn = 'cn=' + self.group_name + ',' + LDAP_GROUP_DN
+            ldapGroupBase().add_role_group(self.group_name,[self.user_role],group_dn,self.master)
         self.ldap_server = ServerInfo(self.ldapHost, self.ldapPort, 'root', 'couchbase')
         self.ipAddress = self.getLocalIPAddress()
 
@@ -328,6 +329,7 @@ class rbacTest(ldaptest):
             self._changeLdapPassRemote(user_list[i][0], 'password1')
             temp_id = str(user_list[i][0]) + ":" + str('password1?')
         result = rbacmain(self.master,self.auth_type)._check_role_permission_validate_multiple(temp_id[:-1],self.user_role,self.bucket_name,self.role_map)
+
         self.assertTrue(result,"Issue with role assignment and comparision with permission set")
 
 
@@ -376,6 +378,7 @@ class rbacTest(ldaptest):
         self.assertTrue(fieldVerification, "One of the fields is not matching")
         self.assertTrue(valueVerification, "Values for one of the fields is not matching")
 
+'''
 class rbac_upgrade(NewUpgradeBaseTest,ldaptest):
 
     def setUp(self):
@@ -434,3 +437,4 @@ class rbac_upgrade(NewUpgradeBaseTest,ldaptest):
 
 
 
+'''

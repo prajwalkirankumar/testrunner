@@ -1,17 +1,5 @@
 from membase.api.rest_client import RestConnection
-#import urllib
 from security.rbacmain import rbacmain
-#import json
-#from remote.remote_util import RemoteMachineShellConnection
-#from newupgradebasetest import NewUpgradeBaseTest
-#from security.auditmain import audit
-#import commands
-#import socket
-#import fileinput
-#import sys
-#from subprocess import Popen, PIPE
-#from security.rbac_base import RbacBase
-#from ldap_group import LdapGroup
 from security.ldapGroupBase import ldapGroupBase
 from basetestcase import BaseTestCase
 import random
@@ -19,8 +7,7 @@ import math
 from security.ldap_user import LdapUser
 from security.ldap_group import LdapGroup
 from security.internal_user import InternalUser
-import time
-
+from security.external_user import ExternalUser
 
 class ServerInfo():
 
@@ -43,14 +30,13 @@ class ServerInfo():
 
 class ldapGroup(BaseTestCase):
     LDAP_GROUP_DN = "ou=Groups,dc=couchbase,dc=com"
-    Users =[]
+    Users = []
     Groups = []
-    # def __init__(self,users=[],groups=[]):
-    #     self.Users = users
-    #     self.Groups = groups
+
     def setUp(self):
         super(ldapGroup, self).setUp()
-
+        self.Users = []
+        self.Groups = []
         self.group_name = self.input.param('group_name','testgrp')
         self.group_no = self.input.param('group_no',None)
         self.user_no = self.input.param('user_no','')
@@ -79,10 +65,10 @@ class ldapGroup(BaseTestCase):
             if(":" in self.user_list):
                 self.user_list= self.user_list.split(":")
         self.group_roles = self.input.param('group_roles','admin')
-        if("?" not in self.group_roles):
-            self.group_roles= self.group_roles.split(":")
+        # if("?" not in self.group_roles):
+        self.group_roles= self.group_roles.split(":")
         self.auth_type = self.input.param('auth_type','LDAPGrp')
-        if self.auth_type == 'LDAPGrp':
+        if self.auth_type == 'LDAPGrp' or self.auth_type == 'external':
             ldapGroupBase().create_ldap_config(self.master)
         if("?" not in self.user_roles):
             self.user_roles = self.user_roles.split(":")
@@ -94,19 +80,27 @@ class ldapGroup(BaseTestCase):
         if(self.multiple_setup):
             self.multiple_grp_setup()
         self.initial_setup = self.input.param('initial_setup',False)
-        self.rest =  RestConnection(self.master)
+        self.rest = RestConnection(self.master)
         self.rest.invalidate_ldap_cache()
+        self.group_type = self.input.param('group_type',"NoGroup")
         if self.initial_setup:
             self.do_initial_setup()
-        else:
-            pass
+
     def AfterTestExec(self):
         for grp in self.Groups:
             LdapGroup(group_name=grp,host=self.master).delete_group()
             ldapGroupBase().delete_group(grp, self.master)
-        for usr in self.Users:
+        users = []
+        for subl in self.Users:
+            if isinstance(subl,list):
+                users.extend([user for user in subl])
+            else:
+                users.append(subl)
+        for usr in users:
             LdapUser(user_name=usr, password='password', host=self.master).delete_user()
             InternalUser(user_id=usr,host=self.master).delete_user()
+            ExternalUser(user_id=usr,host=self.master).delete_user()
+
     def tearDown(self):
         if isinstance(self,ldapGroup)==True and self.Groups!=[] and self.Users!=[]:
             self.AfterTestExec()
@@ -129,7 +123,19 @@ class ldapGroup(BaseTestCase):
         ldapGroupBase().delete_group(self.group_name,self.master)
         self.addToUserList(self.user_list)
         self.addToGroupList(self.group_name)
-        if self.auth_type == 'LDAPGrp':
+
+        if self.auth_type == "external":
+            ldapGroupBase().create_group_ldap(self.group_name, self.user_list, self.master)
+            group_dn = 'cn=' + self.group_name + ',' + self.LDAP_GROUP_DN
+            if len(self.user_list) > len(self.user_roles):
+                for num in range(0, len(self.user_list) - 1):
+                    self.user_roles.append(self.user_roles[0])
+            if self.group_type == "ExternalGrp":
+                ldapGroupBase().add_role_group(self.group_name, self.group_roles[0], group_dn, self.master)
+                ldapGroupBase().create_grp_usr_external(self.user_list,self.master,self.user_roles,self.group_name)
+            elif self.group_type == "NoGroup":
+                ldapGroupBase().create_grp_usr_external(self.user_list,self.master, self.user_roles, "")
+        elif self.auth_type == 'LDAPGrp':
             ldapGroupBase().create_group_ldap(self.group_name,self.user_list,self.master)
             group_dn = 'cn=' + self.group_name + ',' + self.LDAP_GROUP_DN
             ldapGroupBase().add_role_group(self.group_name,self.group_roles[0],group_dn,self.master)
@@ -143,27 +149,18 @@ class ldapGroup(BaseTestCase):
                 final_role = self.user_roles[index]+","+ self.group_roles[0]
                 ldapGroupBase().create_int_group(self.group_name, [usr], self.group_roles, [self.user_roles[index]],self.master)
 
-            '''
-            ldapGroupBase().create_grp_usr_internal(self.user_list,self.master,self.user_roles)
-            for user in self.user_list:
-                ldapGroupBase().get_user_detail(user,self.master)
-            ldapGroupBase().add_role_group(self.group_name,self.group_roles,None,self.master)
-            ldapGroupBase().add_role_group('grp2',['cluster_admin'],None,self.master)
-            for user in self.user_list:
-                ldapGroupBase().get_user_detail(user,self.master)
-            ldapGroupBase().add_int_user_role('oel1',self.group_name,self.master)
-            ldapGroupBase().add_int_user_role('oel1','testgrp1',self.master)
-            for user in self.user_list:
-                ldapGroupBase().get_user_detail(user,self.master)
-            ldapGroupBase().get_group_detail(self.group_name,self.master)
-            ldapGroupBase().check_permission('oel1',self.master)
-            '''
+    def test_external_user_group(self):
+        result = ldapGroupBase().check_grp_created(self.group_name, self.master)
+        self.assertTrue(result)
+        for user in self.user_list:
+            result = ldapGroupBase().check_permission(user, self.master, external=self.auth_type == "external")
+            self.assertTrue(result)
+
 
     def testLdap(self):
         result = ldapGroupBase().check_grp_created(self.group_name, self.master)
         content = ldapGroupBase().get_user_detail('oel1',self.master)
         self.assertTrue(result)
-
 
     def test_add_ldap_group(self):
         result = ldapGroupBase().check_grp_created(self.group_name,self.master)
@@ -178,41 +175,42 @@ class ldapGroup(BaseTestCase):
 
         self.add_user = self.input.param('add_user').split(':')
         self.Users.append(self.add_user)
-        if(self.auth_type=='LDAPGrp'):
+        if self.auth_type == "external":
+            if self.group_type == "ExternalGroup":
+                ldapGroupBase().update_group(self.group_name, self.add_user, 'Add', self.master, external=True)
+            elif self.group_type == "NoGroup":
+                ldapGroupBase().update_group("", self.add_user, 'Add', self.master, external=True)
+            self.sleep(10)
+        if self.auth_type == 'LDAPGrp':
             ldapGroupBase().update_group(self.group_name, self.add_user,'Add',self.master)
-            time.sleep(10)
-        if(self.auth_type=="InternalGrp"):
-            # self.group_name=self.group_name + "1"
-            content= ldapGroupBase().get_group_detail(self.group_name, self.master)
-            # content = content
-            final_grp=""
+            self.sleep(10)
+        if self.auth_type == "InternalGrp":
+            content = ldapGroupBase().get_group_detail(self.group_name, self.master)
+            final_grp = ""
             content = content[1]['roles']
             for role in content:
-                final_grp =final_grp+","+role['role']
-            if final_grp[0]==",":
-                final_grp=final_grp[1:]
-            final_roles= self.user_roles[0]+","+final_grp
+                final_grp = final_grp+","+role['role']
+            if final_grp[0] == ",":
+                final_grp = final_grp[1:]
+            final_roles = self.user_roles[0] + "," + final_grp
             ldapGroupBase().create_grp_usr_internal(self.add_user,self.master,[final_roles], self.group_name)
-
-            time.sleep(10)
+            self.sleep(10)
 
         self.rest.invalidate_ldap_cache()
-        time.sleep(10)
-        result = ldapGroupBase().check_permission(self.add_user[0],self.master)
+        self.sleep(10)
+        result = ldapGroupBase().check_permission(self.add_user[0],self.master, external = (self.auth_type == "external"))
         self.assertTrue(result)
 
     def test_remove_user(self):
         self.remove_user = self.input.param('remove_user').split(':')
         self.Users.append(self.remove_user)
-        time.sleep(5)
-        ldapGroupBase().update_group(self.group_name, self.remove_user,'Remove',self.master)
-        time.sleep(10)
+        ldapGroupBase().update_group(self.group_name, self.remove_user,'Remove', self.master, external = self.auth_type == "external")
+        self.sleep(10)
         self.rest.invalidate_ldap_cache()
         user = ldapGroupBase().get_user_detail(self.remove_user[0], self.master)
-        # self.rest.invalidate_ldap_cache()
-        time.sleep(5)
-        result = ldapGroupBase().check_permission(self.remove_user[0],self.master)
-        time.sleep(5)
+        self.sleep(5)
+        result = ldapGroupBase().check_permission(self.remove_user[0],self.master, external = self.auth_type == "external")
+        self.sleep(5)
         self.assertFalse(result)
 
     # Simple test case setting up depth and < configured group depth
@@ -225,8 +223,9 @@ class ldapGroup(BaseTestCase):
         self.log.info("Current config nested group depth is:  - {0}".format(config_nested_grp_depth))
         random_user = self.input.param('random_user',False)
         ldapGroupBase().update_ldap_config_nested_grp(self.master,config_nested_grp_depth)
-        time.sleep(3)
-        first_group, last_group, first_user, last_user,listOfUsers,listOfGrps = ldapGroupBase().create_nested_grp('newgrp', 'newusr', nested_grp_depth,self.master)
+        self.sleep(3)
+        first_group, last_group, first_user, last_user, listOfUsers, listOfGrps = ldapGroupBase().create_nested_grp \
+            ('newgrp', 'newusr', nested_grp_depth,self.master)
         self.addToUserList(listOfUsers)
         self.addToGroupList(listOfGrps)
         result=''
@@ -236,18 +235,18 @@ class ldapGroup(BaseTestCase):
              result = ldapGroupBase().check_permission(first_user[0], self.master)
         else:
              ldapGroupBase().add_role_group(last_group, 'admin', group_dn, self.master)
-             time.sleep(30)
+             self.sleep(30)
              self.rest.invalidate_ldap_cache()
-             time.sleep(30)
+             self.sleep(30)
              result = ldapGroupBase().check_permission(first_user[0],self.master)
              self.assertTrue(result)
 
-        time.sleep(40)
         result = ldapGroupBase().check_permission(last_user[0],self.master)
         self.assertTrue(result)
         if random_user:
             level_no = random.randrange(1,nested_grp_depth)
             result = ldapGroupBase().check_permission('newusr' + str(level_no) ,self.master)
+            self.assertTrue(result)
 
         add_layer = self.input.param('add_layer',None)
         if(add_layer!=None):
@@ -258,13 +257,16 @@ class ldapGroup(BaseTestCase):
             self.assertTrue(content)
 
     def test_nested_grp_diff_level(self):
-        time.sleep(30)
+        self.sleep(30)
         ldapGroupBase().update_ldap_config_nested_grp(self.master, 10)
-        first_group, last_group, first_user, last_user  ,listOfUsers,listOfGrps = ldapGroupBase().create_nested_grp(self.group_prefix, self.user_prefix, self.nested_level, self.master)
-        role =""
+        first_group, last_group, first_user, last_user, listOfUsers, listOfGrps = \
+            ldapGroupBase().create_nested_grp(self.group_prefix, self.user_prefix, self.nested_level, self.master)
+        self.addToUserList(listOfUsers)
+        self.addToGroupList(listOfGrps)
+        role = ""
         for i in self.group_roles:
-            role= role+","+i
-        if(role[0]==','):
+            role = role+","+i
+        if role[0] == ',' :
             role = role[1:]
         self.group_roles= role
         add_usr = self.input.param('add_user',None)
@@ -272,9 +274,9 @@ class ldapGroup(BaseTestCase):
         if self.access_type == 'last':
             group_dn = 'cn=' + last_group +  ',' + self.LDAP_GROUP_DN
             ldapGroupBase().add_role_group(last_group,self.group_roles,group_dn,self.master)
-            time.sleep(30)
+            self.sleep(30)
             result = ldapGroupBase().check_permission(first_user[0] ,self.master)
-            time.sleep(30)
+            self.sleep(30)
             self.assertTrue(result)
             result = ldapGroupBase().check_permission(last_user[0] ,self.master)
             self.assertTrue(result)
@@ -283,7 +285,7 @@ class ldapGroup(BaseTestCase):
             level_no = int(math.floor(self.nested_level/2))
             group_dn = 'cn=' + self.group_prefix + str(level_no) + ',' +  self.LDAP_GROUP_DN
             ldapGroupBase().add_role_group(self.group_prefix + str(level_no),self.group_roles,group_dn,self.master)
-            time.sleep(30)
+            self.sleep(30)
             result = ldapGroupBase().check_permission(self.user_prefix + str(level_no) ,self.master)
             self.assertTrue(result)
             result = ldapGroupBase().check_permission(first_user[0] ,self.master)
@@ -292,12 +294,11 @@ class ldapGroup(BaseTestCase):
         elif self.access_type == 'random':
             level_no = random.randrange(1,self.nested_level)
             group_dn = 'cn=' + self.group_prefix + str(level_no) + ',' + self.LDAP_GROUP_DN
-
-            ldapGroupBase().add_role_group(self.group_prefix + str(level_no), self.group_roles,group_dn,self.master)
-            time.sleep(30)
-            result = ldapGroupBase().check_permission(self.user_prefix + str(level_no) ,self.master)
+            ldapGroupBase().add_role_group(self.group_prefix + str(level_no), self.group_roles, group_dn, self.master)
+            self.sleep(30)
+            result = ldapGroupBase().check_permission(self.user_prefix + str(level_no), self.master)
             self.assertTrue(result)
-            result = ldapGroupBase().check_permission(first_user[0] ,self.master)
+            result = ldapGroupBase().check_permission(first_user[0], self.master)
             self.assertTrue(result)
             add_grp = self.input.param('add_grp', None)
             del_grp = self.input.param('del_grp', None)
@@ -307,25 +308,25 @@ class ldapGroup(BaseTestCase):
                 ldapGroupBase().create_group_ldap(self.group_prefix + str(level_no), ['addedGrp'], self.master)
                 group_dn = 'cn=' + 'addedGrp' + ',' + self.LDAP_GROUP_DN
                 ldapGroupBase().add_role_group('addedGrp', 'admin', group_dn, self.master)
-                time.sleep(30)
+                self.sleep(30)
                 content = ldapGroupBase().check_permission('jyotsna3', self.master)
                 self.assertTrue(content)
                 if del_grp!=None:
                     ldapGroupBase().delete_group('addedGrp', self.master)
-                    time.sleep(30)
+                    self.sleep(30)
                     result = ldapGroupBase().check_grp_created('addedGrp', self.master)
                     self.assertFalse(result)
 
             if (add_usr!= None):
                 ldapGroupBase().create_group_ldap(self.group_name, self.user_list, self.master)
                 ldapGroupBase().update_user_group(self.group_prefix + str(level_no),['jeremy'],'Add', self.master,True,last_group)
-                time.sleep(30)
+                self.sleep(30)
                 group_dn = 'cn=' + self.group_prefix + str(level_no) + ',' + self.LDAP_GROUP_DN
                 content = ldapGroupBase().check_permission('jyotsna3', self.master)
                 self.assertTrue(content)
                 if del_usr!=None:
                     ldapGroupBase().update_group(self.group_name, self.remove_user, 'Remove', self.master)
-                    time.sleep(30)
+                    self.sleep(30)
                     result = ldapGroupBase().check_permission(self.remove_user[0], self.master)
                     self.assertFalse(result)
 
@@ -334,7 +335,7 @@ class ldapGroup(BaseTestCase):
             level_no = random.randrange(1,self.nested_level)
             group_dn = 'cn=' + first_group + ',' + self.LDAP_GROUP_DN
             ldapGroupBase().add_role_group(first_group, self.group_roles,group_dn,self.master)
-            time.sleep(10)
+            self.sleep(10)
             result = ldapGroupBase().check_permission(first_user[0] ,self.master)
             self.assertTrue(result)
 
@@ -342,27 +343,26 @@ class ldapGroup(BaseTestCase):
     #choose a random group and then assign a different role. Check that the higher role wins
     def test_nested_grp_ind_level(self):
         ldapGroupBase().update_ldap_config_nested_grp(self.master)
-        time.sleep(10)
+        self.sleep(10)
         new_role = self.input.param('new_role').split(':')
-        first_group, last_group, first_user, last_user, listOfUsers,listOfGrps= ldapGroupBase().create_nested_grp(self.group_prefix, self.user_prefix, self.nested_level, self.master)
-        time.sleep(3)
+        first_group, last_group, first_user, last_user, listOfUsers, listOfGrps = \
+            ldapGroupBase().create_nested_grp(self.group_prefix, self.user_prefix, self.nested_level, self.master)
+        self.sleep(3)
         self.addToUserList(listOfUsers)
         self.addToGroupList(listOfGrps)
         group_dn = 'cn=' + last_group +  ',' + self.LDAP_GROUP_DN
-        time.sleep(3)
-        result = ldapGroupBase().check_permission(last_user[0], self.master)
+        self.sleep(3)
+        # ldapGroupBase().check_permission(last_user[0], self.master)
         ldapGroupBase().add_role_group(last_group,self.group_roles[0],group_dn,self.master)
-        time.sleep(3)
-        result = ldapGroupBase().check_permission(last_user[0] ,self.master)
+        self.sleep(3)
+        # ldapGroupBase().check_permission(last_user[0] ,self.master)
         level_no = random.randrange(1,self.nested_level)
         group_dn = 'cn=' + self.group_prefix + str(level_no) + ',' +  self.LDAP_GROUP_DN
         ldapGroupBase().add_role_group(self.group_prefix + str(level_no),new_role[0],group_dn,self.master)
-        time.sleep(3)
+        self.sleep(3)
         result = ldapGroupBase().check_permission(self.user_prefix + str(level_no) ,self.master)
         self.assertTrue(result)
-
         result = ldapGroupBase().check_permission(self.user_prefix + str(level_no-1) ,self.master)
-
         self.rest.invalidate_ldap_cache()
         self.assertTrue(result)
 
@@ -371,17 +371,21 @@ class ldapGroup(BaseTestCase):
     def test_multi_grp_usr(self):
         random_user = self.input.param('random_user', False)
         ldapGroupBase().update_ldap_config_nested_grp(self.master,10)
-        time.sleep(3)
-        if len(self.group_roles) ==1:
-            grp=[]
+        self.sleep(3)
+        if len(self.group_roles) == 1:
+            grp = []
             for i in range(self.group_no):
                 grp.append(self.group_roles[0])
             self.group_roles= grp
-        grp_list, usr_list = ldapGroupBase().create_ldap_grp_user(self.group_no,self.user_no, self.group_roles, self.master)
-        time.sleep(3)
+        grp_list, usr_list = ldapGroupBase().create_ldap_grp_user(self.group_no,self.user_no,
+                                                                  self.group_roles, self.master,
+                                                                  external=self.auth_type == "external")
+        self.addToUserList(usr_list)
+        self.addToGroupList(grp_list)
+        self.sleep(3)
         for i in range(0,int(self.group_no)):
             for usr in usr_list[i]:
-                result = ldapGroupBase().check_permission(usr ,self.master)
+                result = ldapGroupBase().check_permission(usr, self.master, external=self.auth_type == "external")
                 if 'admin' in self.group_roles[i]:
                     self.assertTrue(result)
                 elif 'cluster_admin' in self.group_roles[i]:
@@ -389,13 +393,21 @@ class ldapGroup(BaseTestCase):
 
     #Same user in multiple group - group having same role and group having higher role
     def test_usr_in_multi_grp(self):
-        grp_list, usr_list = ldapGroupBase().create_ldap_grp_user(self.group_no,self.user_no, self.group_roles, self.master)
+        grp_list, usr_list = ldapGroupBase().create_ldap_grp_user(self.group_no,self.user_no, self.group_roles,
+                                                                  self.master,external=self.auth_type == "external")
+        self.addToGroupList(grp_list)
+        self.addToUserList(usr_list)
         common_user = ['comusr']
         ldapGroupBase().create_grp_usr_ldap(common_user[0], self.master)
+        self.addToUserList(common_user)
         for i in range(0, int(self.group_no) - 1):
             ldapGroupBase().update_group(grp_list[i], common_user,'Add',self.master)
-            time.sleep(3)
-        result = ldapGroupBase().check_permission('comusr',self.master)
+            self.sleep(5)
+        if self.auth_type == "external":
+            groups = ','.join(grp_list)
+            ldapGroupBase().create_grp_usr_external(common_user,self.master,[''],groups)
+            self.sleep(10)
+        result = ldapGroupBase().check_permission('comusr', self.master, external=self.auth_type == "external")
         self.assertTrue(result)
 
     ''' -- Local Group Starts here -----'''
@@ -413,11 +425,31 @@ class ldapGroup(BaseTestCase):
         for i in range (0, len(add_grp)):
             # add_role_group(self, group_name, roles, ldap_ref, host)
             ldapGroupBase().add_role_group(add_grp[i],add_role[i],None,self.master)
-            time.sleep(3)
+            self.sleep(3)
             final_grp = add_grp[i] + ',' + final_grp
         for user in self.user_list:
             ldapGroupBase().add_int_user_role(user,final_grp,self.master)
-            time.sleep(3)
+            self.sleep(3)
+        for grp in add_grp:
+            result = ldapGroupBase().check_grp_created(self.group_name, self.master)
+            self.assertTrue(result)
+
+        #Validate the user group and roles here
+
+    # Add external/ldap users  to local group
+    def test_add_grp_local_usr_ldap(self):
+        final_role = ''
+        final_grp = ''
+        add_grp = self.input.param('add_grp').split(':')
+        add_role = self.input.param('add_role').split(':')
+        for i in range (0, len(add_grp)):
+            # add_role_group(self, group_name, roles, ldap_ref, host)
+            ldapGroupBase().add_role_group(add_grp[i],add_role[i],None,self.master)
+            self.sleep(3)
+            final_grp = add_grp[i] + ',' + final_grp
+        for user in self.user_list:
+            ldapGroupBase().add_int_user_role(user,final_grp,self.master)
+            self.sleep(3)
         for grp in add_grp:
             result = ldapGroupBase().check_grp_created(self.group_name, self.master)
             self.assertTrue(result)
@@ -430,14 +462,13 @@ class ldapGroup(BaseTestCase):
         remove_grp = self.input.param('remove_grp').split(':')
         for i in range(0,len(remove_usr)):
             ldapGroupBase().remove_int_user_role(remove_usr[i], remove_grp[i], self.master)
-            time.sleep(3)
+            self.sleep(3)
         for user in self.user_list:
                 ldapGroupBase().get_user_detail(user,self.master)
 
     def multiple_grp_setup(self):
         group_roles = ""
         if isinstance(self.group_roles, list):
-
             for role in self.group_roles:
                 group_roles = group_roles+":"+role
             if group_roles[0]==":":
@@ -462,13 +493,13 @@ class ldapGroup(BaseTestCase):
         else:
             final_roles = self.user_roles
         self.user_roles= final_roles
-        ldapGroupBase().create_multiple_group_user(self.user_list, self.user_roles, group_no, self.group_name, group_roles, self.master)
+        group_list = ldapGroupBase().create_multiple_group_user(self.user_list, self.user_roles, group_no, self.group_name, group_roles, self.master)
+        self.addToUserList(self.user_list)
+        self.addToGroupList(group_list)
         return  self.user_list, self.user_roles, group_no, self.group_name, group_roles
 
     def test_multiple_user_and_group_int(self):
         self.assertFalse(self.multiple_setup,"Please set the multiple_setup parameter to False")
-        # if ":" in self.user_roles:
-        #     self.user_roles = self.user_roles.split(":")
         user_list,user_roles,group_no,group_name,group_roles= self.multiple_grp_setup()
         group_roles = [grpRoles.replace(":",",") for grpRoles in group_roles.split("?")]
 
@@ -478,7 +509,7 @@ class ldapGroup(BaseTestCase):
         for num in range(0,group_no):
             grp= group_name+str(num+1)
             result = ldapGroupBase().check_grp_created(grp,self.master)
-            time.sleep(3)
+            self.sleep(3)
             self.assertTrue(result,'Group '+ grp+' not created properly')
             users = user_list[num]
             uRoles = user_roles[num]
@@ -553,36 +584,38 @@ class ldapGroup(BaseTestCase):
         content = ldapGroupBase().check_permission(self.rem_usr,self.master)
         self.assertTrue(content)
 
+    def test_add_remove_ext_user(self):
+        self.rem_usr = self.input.param('rem_usr', "")
+
+
     def test_ldap_group_cache(self):
-        # if self.auth_type == 'LDAPGrp':
         ldapGroupBase().create_group_ldap(self.group_name, self.user_list, self.master)
         group_dn = 'cn=' + self.group_name + ',' + self.LDAP_GROUP_DN
         ldapGroupBase().add_role_group(self.group_name, self.group_roles[0], group_dn, self.master)
-        time.sleep(3)
-        content= ldapGroupBase().check_permission(self.user_list[0],self.master)
+        self.sleep(3)
+        content = ldapGroupBase().check_permission(self.user_list[0],self.master)
         ldapGroupBase().remove_role_existing_grp( [self.group_name],['admin'], group_dn, self.master)
-        time.sleep(3)
+        self.sleep(3)
         Gcontent = ldapGroupBase().get_group_detail(self.group_name, self.master)
         content = ldapGroupBase().check_permission(self.user_list[0], self.master)
         ldapGroupBase().add_role_group(self.group_name, 'cluster_admin', group_dn, self.master)
-        time.sleep(3)
+        self.sleep(3)
         content = ldapGroupBase().check_permission(self.user_list[0], self.master)
         ldapGroupBase().add_role_group(self.group_name, 'admin', group_dn, self.master)
-        time.sleep(3)
+        self.sleep(3)
         content = ldapGroupBase().check_permission(self.user_list[0], self.master)
 
     def test_rebal_in_out(self):
-        if len(self.servers)>1:
+        if len(self.servers) > 1:
             servers_in = self.servers[1:]
-            # server = self.servers[1]
             self.cluster.rebalance(self.servers, servers_in, [])
-            time.sleep(5)
+            self.sleep(5)
             for server in self.servers[:2]:
                 content = ldapGroupBase().check_permission(self.user_list[0], server)
                 self.assertTrue(content)
-            time.sleep(3)
+            self.sleep(3)
             self.cluster.rebalance(self.servers, [], servers_in)
-            time.sleep(5)
+            self.sleep(5)
             content = ldapGroupBase().check_permission(self.user_list[0], self.master)
             self.assertTrue(content)
 

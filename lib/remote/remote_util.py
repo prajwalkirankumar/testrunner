@@ -4298,8 +4298,7 @@ class RemoteMachineShellConnection:
             cb_client = "%scouchbase-cli.exe" % (WIN_COUCHBASE_BIN_PATH)
         if self.info.distribution_type.lower() == 'mac':
             cb_client = "%scouchbase-cli" % (MAC_COUCHBASE_BIN_PATH)
-
-        cluster_param = (" -c http://{0}".format(cluster_host),
+        cluster_param = (" -c {0}".format(cluster_host),
                          "")[cluster_host is None]
         if cluster_param is not None:
             cluster_param += (":{0}".format(cluster_port), "")[cluster_port is None]

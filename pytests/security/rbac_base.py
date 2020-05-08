@@ -27,15 +27,19 @@ class RbacBase:
          user_list = [{'id':ritam,'password':'password','name':'newname'}]
     '''
     def create_user_source(self,user_list=None,source=None,host=None):
-        for user in user_list:
-            userid = user['id']
-            password = user['password']
-            user_name = user['name']
-            if source == 'ldap':
-                return LdapUser(userid,password,host).user_setup()
-            if source == 'builtin':
-                payload = "name=" + user_name + "&roles=&password=" + password
-                return InternalUser(userid,payload,host).user_setup()
+        try:
+            for user in user_list:
+                userid = user['id']
+                password = user['password']
+                user_name = user['name']
+                if source == 'ldap' or source =='LDAPGrp':
+                    return LdapUser(userid,password,host).user_setup()
+                if source == 'builtin' or source == 'Internal':
+                    payload = "name=" + user_name + "&roles=&password=" + password
+                    return InternalUser(userid,payload,host).user_setup()
+
+        except Exception as e:
+            print str(e)
 
     '''
     user_role_list = list of user information and role assignment
@@ -45,11 +49,12 @@ class RbacBase:
         if source:
             self.source = source
         response_return = []
+        final_roles = ""
         for user_role in user_role_list:
-            final_roles = ""
             userid = user_role['id']
             username = user_role['name']
             user_role_param = user_role['roles'].split(":")
+            response =''
             if len(user_role_param) == 1:
                 final_roles = user_role_param[0]
             else:
@@ -95,8 +100,11 @@ class RbacBase:
 
     def check_user_permission(self,user,password,user_per_list,rest):
         response = rest.check_user_permission(user,password,user_per_list)
-        print response
         return response
+
+
+
+
 
 
 

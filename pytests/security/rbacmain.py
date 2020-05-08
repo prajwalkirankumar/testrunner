@@ -4,7 +4,7 @@ from security.rbacRoles import rbacRoles
 import logger
 log = logger.Logger.get_logger()
 import base64
-from security.rbacPermissionList import rbacPermissionList
+#from security.rbacPermissionList import rbacPermissionList
 from remote.remote_util import RemoteMachineShellConnection
 import commands
 import urllib
@@ -73,11 +73,13 @@ class rbacmain:
             if usr['id'] == user:
                 return usr
 
+
     def _set_user_roles(self,user_name,payload):
         rest = RestConnection(self.master_ip)
-        if self.auth_type == "ldap" or self.auth_type == "pam":
+        url=""
+        if self.auth_type == "ldap" or self.auth_type == "pam" or self.auth_type=='LDAPGrp':
             url = "settings/rbac/users/external/" + user_name
-        elif self.auth_type == 'builtin':
+        elif self.auth_type == 'builtin' or self.auth_type=='InternalGrp':
             url = "settings/rbac/users/local/" + user_name
         api = rest.baseUrl + url
         status, content, header = rest._http_request(api, 'PUT', params=payload)
@@ -86,7 +88,7 @@ class rbacmain:
 
     def _delete_user(self,user_name):
         rest = RestConnection(self.master_ip)
-        if self.auth_type == 'ldap' or self.auth_type == "pam":
+        if self.auth_type == 'ldap' or self.auth_type == "pam" or self.auth_type=='LDAPGrp' :
             url = "/settings/rbac/users/external/" + user_name
         else:
             url = "settings/rbac/users/local/" + user_name
@@ -129,13 +131,14 @@ class rbacmain:
                 response = rest.delete_builtin_user(temp['id'])
 
 
-    def _check_role_permission_validate_multiple(self,user_id,user_role,bucket_name,final_user_role,no_bucket_access=None,no_access_bucket_name=None):
+    def _check_role_permission_validate_multiple(self,user_id,user_role,bucket_name,final_user_role,no_bucket_access=None,no_access_bucket_name=None,auth_type=None):
         failure_list = []
         result = True
         user_details = user_id.split(":")
         final_roles = self._return_roles(user_role)
-        payload = "name=" + user_details[0] + "&roles=" + final_roles
-        rbacmain(self.master_ip,self.auth_type)._set_user_roles(user_name=user_details[0],payload=payload)
+        if auth_type != 'LDAPGrp':
+            payload = "name=" + user_details[0] + "&roles=" + final_roles
+            rbacmain(self.master_ip,self.auth_type)._set_user_roles(user_name=user_details[0],payload=payload)
 
         master, expected, expected_neg = rbacRoles()._return_permission_set(final_user_role)        
 

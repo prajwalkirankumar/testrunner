@@ -27,7 +27,6 @@ import couchbase.subdocument as SD
 from couchbase.n1ql import N1QLQuery, STATEMENT_PLUS,CONSISTENCY_REQUEST, MutationState
 import ast
 
-
 JOIN_INNER = "INNER"
 JOIN_LEFT = "LEFT"
 JOIN_RIGHT = "RIGHT"
@@ -362,17 +361,7 @@ class QueryTests(BaseTestCase):
                                                               'roles')})
         return user_role_list
 
-    def create_users(self, users=None):
-        """
-        :param user: takes a list of {'id': 'xxx', 'name': 'some_name ,
-                                        'password': 'passw0rd'}
-        :return: Nothing
-        """
-        if not users:
-            users = self.users
-        RbacBase().create_user_source(users,'builtin',self.master)
-        self.log.info("SUCCESS: User(s) %s created"
-                      % ','.join([user['name'] for user in users]))
+
 
     def assign_role(self, rest=None, roles=None):
         if not rest:
@@ -399,6 +388,21 @@ class QueryTests(BaseTestCase):
                     return True
 
         return False
+
+    def setupLdapGroup(self,group_name='testGrp',user=None,roles=None):
+        from security.ldapGroupBase import ldapGroupBase
+        LDAP_GROUP_DN = "ou=Groups,dc=couchbase,dc=com"
+        ldapGroupBase().create_ldap_config(self.master)
+        if isinstance(roles,list )==True and len(roles) ==1:
+            roles = roles[0]
+        ldapGroupBase().create_group_ldap(group_name,user,self.master)
+        group_dn = 'cn=' + group_name + ',' + LDAP_GROUP_DN
+        ldapGroupBase().add_role_group(group_name,roles ,group_dn,self.master)
+
+    def setupLdapGroup_NoGroup(self,group_name='testGrp',user=None,roles=None):
+        from security.ldapGroupBase import ldapGroupBase
+        ldapGroupBase().create_ldap_config(self.master)
+        ldapGroupBase().create_group_ldap(group_name,user,self.master)
 
 
 ##############################################################################################
@@ -1841,7 +1845,7 @@ class QueryTests(BaseTestCase):
             self.change_and_update_permission('with_bucket', "query_select", 'john_delete',
                                               bucket.name, cmd, "Unable to select from {0} as user {1}")
 
-    def create_users(self, users=None):
+    def create_users(self, auth_type ='builtin',users=None):
         """
         :param user: takes a list of {'id': 'xxx', 'name': 'some_name ,
                                         'password': 'passw0rd'}
@@ -1849,7 +1853,7 @@ class QueryTests(BaseTestCase):
         """
         if not users:
             users = self.users
-        RbacBase().create_user_source(users, 'builtin', self.master)
+        RbacBase().create_user_source(users, auth_type, self.master)
         self.log.info("SUCCESS: User(s) %s created" % ','.join([user['name'] for user in users]))
 
     def create_users_before_upgrade_non_ldap(self):
@@ -1978,16 +1982,7 @@ class QueryTests(BaseTestCase):
 # Again very specific, some things are generalizable, perhaps rbac should have its own query base test
 #
 ##############################################################################################
-    def create_users(self, users=None):
-        """
-        :param user: takes a list of {'id': 'xxx', 'name': 'some_name ,
-                                        'password': 'passw0rd'}
-        :return: Nothing
-        """
-        if not users:
-            users = self.users
-        RbacBase().create_user_source(users,'builtin',self.master)
-        self.log.info("SUCCESS: User(s) %s created" % ','.join([user['name'] for user in users]))
+
 
     def assign_role(self, rest=None, roles=None):
         if not rest:
@@ -2107,9 +2102,9 @@ class QueryTests(BaseTestCase):
         self.assertTrue(res['metrics']['resultCount'] == 1)
         res = self.curl_with_roles('select * from system:keyspaces')
 
-        if role in ["query_update(default)", "query_delete(default)", "query_insert(default)"]:
+        if role in ["query_update[default]", "query_delete[default]", "query_insert[default]"]:
             self.assertTrue(res['status'] == 'success')
-        elif role.startswith("query_") or role.startswith("select") or role in ["bucket_full_access(default)", "query_delete(default)"]:
+        elif role.startswith("query_") or role.startswith("select") or role in ["bucket_full_access[default]", "query_delete[default]"]:
             self.assertTrue(res['metrics']['resultCount'] == 1)
         else:
             self.assertTrue(res['metrics']['resultCount'] == 2)
@@ -2120,15 +2115,15 @@ class QueryTests(BaseTestCase):
         except Exception, ex:
             self.log.error(ex)
 
-        if role not in ["query_insert(default)", "query_update(default)", "query_delete(default)"]:
+        if role not in ["query_insert[default]", "query_update[default]", "query_delete[default]"]:
             self.query = 'create primary index on {0}'.format(self.buckets[1].name)
             try:
                 self.curl_with_roles(self.query)
             except Exception, ex:
                 self.log.error(ex)
 
-        if role not in ["views_admin(standard_bucket0)", "views_admin(default)", "query_insert(default)",
-                        "query_update(default)", "query_delete(default)"]:
+        if role not in ["views_admin(standard_bucket0)", "views_admin[default]", "query_insert[default]",
+                        "query_update[default]", "query_delete[default]"]:
             self.query = 'create index idx1 on {0}(name)'.format(self.buckets[0].name)
             res = self.curl_with_roles(self.query)
             self.sleep(10)
@@ -2140,7 +2135,7 @@ class QueryTests(BaseTestCase):
 
         if role in ["admin", "cluster_admin", "bucket_admin"]:
             self.assertTrue(res['metrics']['resultCount'] == 4)
-        elif role in ["bucket_admin(default)", "bucket_admin(standard_bucket0)", "query_system_catalog", "ro_admin", "replication_admin"]:
+        elif role in ["bucket_admin[default]", "bucket_admin(standard_bucket0)", "query_system_catalog", "ro_admin", "replication_admin"]:
             self.assertTrue(res['status'] == 'success')
 
         self.query = 'select * from system:dual'
@@ -2157,12 +2152,19 @@ class QueryTests(BaseTestCase):
         self.query = 'select * from system:nodes'
         res = self.curl_with_roles(self.query)
 
-        if role == "bucket_full_access(default)":
+        # if role == "bucket_full_access[default]":
+        #     self.assertTrue(res['status'] == 'stopped')
+        # elif role in ["select[default]", "query_select[default]", "select(standard_bucket0)", "query_select(standard_bucket0)"]:
+        #     self.assertTrue(str(res).find("'code': 13014") != -1)
+        # elif role in ["insert[default]", "query_insert[default]", "query_update[default]", "query_delete[default]"]:
+        if role == "bucket_full_access[default]":
             self.assertTrue(res['status'] == 'stopped')
-        elif role in ["select(default)", "query_select(default)", "select(standard_bucket0)", "query_select(standard_bucket0)"]:
+        elif role in ["select[default]", "query_select[default]", "select(standard_bucket0)", "query_select(standard_bucket0)"]:
             self.assertTrue(str(res).find("'code': 13014") != -1)
         elif role in ["insert(default)", "query_insert(default)", "query_update(default)", "query_delete(default)"]:
             self.assertTrue(res['status'] == 'fatal')
+        # elif role in ["insert[default]", "query_insert[default]", "query_update[default]", "query_delete[default]"]:
+        #     self.assertTrue(res['status'] == 'stopped')
         else:
             self.assertTrue(res['status'] == 'success')
 
@@ -2173,49 +2175,49 @@ class QueryTests(BaseTestCase):
             self.assertTrue(res['status'] == 'success')
         elif role == "ro_admin":
             self.assertTrue(res['status'] == 'success')
-        elif role == "cluster_admin" or role == "bucket_admin(default)":
+        elif role == "cluster_admin" or role == "bucket_admin[default]":
             self.assertTrue(str(res).find("'code': 13014") != -1)
 
-        # if (role == "query_insert(default)" or role == "query_delete(default)" or role
-        # == "query_update(default)"):
+        # if (role == "query_insert[default]" or role == "query_delete[default]" or role
+        # == "query_update[default]"):
         #     self.assertTrue(res['status']=='stopped')
         # elif(role == "bucket_admin(standard_bucket0)" or role == "views_admin(
-        # standard_bucket0)" or role == "views_admin(default)" or role == "views_admin"
+        # standard_bucket0)" or role == "views_admin[default]" or role == "views_admin"
         # or role == "replication_admin" or role == "query_system_catalog" or role ==
         # "ro_admin"):
         #     self.assertTrue(str(res).find("'code': 13014")!=-1)
         # else:
         #     self.assertTrue(res['metrics']['resultCount']> 0)
-        if role not in ["ro_admin", "replication_admin", "query_insert(default)", "query_delete(default)",
-                        "query_update(default)", "bucket_full_access(default)", "query_system_catalog", "views_admin(default)"]:
+        if role not in ["ro_admin", "replication_admin", "query_insert[default]", "query_delete[default]",
+                        "query_update[default]", "bucket_full_access[default]", "query_system_catalog", "views_admin[default]"]:
             self.query = "prepare st1 from select * from default union select * from default union select * from default"
             res = self.curl_with_roles(self.query)
             self.query = 'execute st1'
             res = self.curl_with_roles(self.query)
             if role in ["bucket_admin(standard_bucket0)", "views_admin(standard_bucket0)", "replication_admin"]:
                 self.assertTrue(str(res).find("'code': 4040") != -1)
-            elif role == "select(default)" or role == "query_select(default)":
+            elif role == "select[default]" or role == "query_select[default]":
                 self.assertTrue(res['metrics']['resultCount'] == 0)
             else:
                 self.assertTrue(res['status'] == 'success')
 
-            if role not in ["query_insert(default)", "query_delete(default)", "query_update(default)"]:
+            if role not in ["query_insert[default]", "query_delete[default]", "query_update[default]"]:
                 self.query = "prepare st2 from select * from default union select * from " \
                              "standard_bucket0 union select * from default"
                 res = self.curl_with_roles(self.query)
 
                 if role in ["bucket_admin(standard_bucket0)", "views_admin(standard_bucket0)",
-                            "views_admin(default)", "views_admin", "bucket_admin(default)", "replication_admin",
-                            "query_system_catalog", "select(default)", "query_select(default)"]:
+                            "views_admin[default]", "views_admin", "bucket_admin[default]", "replication_admin",
+                            "query_system_catalog", "select[default]", "query_select[default]"]:
                     self.assertTrue(str(res).find("'code': 13014") != -1)
                 else:
                     self.assertTrue(res['metrics']['resultCount'] > 0)
 
                 self.query = 'execute st2'
                 res = self.curl_with_roles(self.query)
-                if role in ["bucket_admin(standard_bucket0)", "views_admin(standard_bucket0)", "views_admin(default)",
-                            "views_admin", "bucket_admin(default)", "replication_admin", "query_system_catalog",
-                            "select(default)", "query_select(default)"]:
+                if role in ["bucket_admin(standard_bucket0)", "views_admin(standard_bucket0)", "views_admin[default]",
+                            "views_admin", "bucket_admin[default]", "replication_admin", "query_system_catalog",
+                            "select[default]", "query_select[default]"]:
                     self.assertTrue(str(res).find("'code': 4040") != -1)
                 else:
                     self.assertTrue(res['status'] == 'success')
@@ -2223,19 +2225,19 @@ class QueryTests(BaseTestCase):
                 self.query = 'select * from system:completed_requests'
                 res = self.curl_with_roles(self.query)
 
-                if role == "select(default)" or role == "query_select(default)":
+                if role == "select[default]" or role == "query_select[default]":
                     self.assertTrue(str(res).find("'code': 13014") != -1)
                 elif role == "bucket_admin(standard_bucket0)":
                     self.assertTrue(res['metrics']['resultCount'] > 0)
                 else:
                     self.assertTrue(res['status'] == 'success')
 
-        if role not in ["query_insert(default)", "query_delete(default)", "query_update(default)",
-                        "bucket_full_access(default)", "ro_admin"]:
+        if role not in ["query_insert[default]", "query_delete[default]", "query_update[default]",
+                        "bucket_full_access[default]", "ro_admin"]:
             self.query = 'select * from system:prepareds'
             res = self.curl_with_roles(self.query)
 
-            if role == "select(default)" or role == "query_select(default)":
+            if role == "select[default]" or role == "query_select[default]":
                 self.assertTrue(str(res).find("'code': 13014") != -1)
             else:
                 self.assertTrue(res['status'] == 'success')
@@ -2243,7 +2245,7 @@ class QueryTests(BaseTestCase):
             self.query = 'select * from system:active_requests'
             res = self.curl_with_roles(self.query)
 
-            if role == "select(default)" or role == "query_select(default)":
+            if role == "select[default]" or role == "query_select[default]":
                 self.assertTrue(str(res).find("'code': 13014") != -1)
             else:
                 self.assertTrue(res['metrics']['resultCount'] > 0)
@@ -2255,11 +2257,11 @@ class QueryTests(BaseTestCase):
             self.query = 'select * from system:indexes'
             res = self.curl_with_roles(self.query)
 
-        if role == "views_admin(default)":
+        if role == "views_admin[default]":
             self.assertTrue(res['status'] == 'success')
-        elif role in ["bucket_admin(standard_bucket0)", "bucket_admin(default)", "select(default)", "query_select(default)"]:
+        elif role in ["bucket_admin(standard_bucket0)", "bucket_admin[default]", "select[default]", "query_select[default]"]:
             self.assertTrue(res['metrics']['resultCount'] == 1)
-        elif role in ["query_insert(default)", "query_delete(default)", "query_update(default)"]:
+        elif role in ["query_insert[default]", "query_delete[default]", "query_update[default]"]:
             self.assertTrue(res['metrics']['resultCount'] == 0)
             # elif (role == "ro_admin"):
             #     self.assertTrue(res['metrics']['resultCount']==2)
@@ -2354,7 +2356,7 @@ class QueryTests(BaseTestCase):
         self.query_with_roles('delete from system:applicable_roles', "'code': 11003")
         self.query = 'delete from system:completed_requests'
         res = self.curl_with_roles(self.query)
-        role_list = ["query_delete(default)", "query_delete(standard_bucket0)", "delete(default)", "bucket_full_access(default)"]
+        role_list = ["query_delete[default]", "query_delete(standard_bucket0)", "delete[default]", "bucket_full_access[default]"]
         self.assertNotEquals(res['status'], 'success') if role in role_list else self.assertTrue(res['status'] == 'success')
         try:
             self.query = 'delete from system:active_requests'

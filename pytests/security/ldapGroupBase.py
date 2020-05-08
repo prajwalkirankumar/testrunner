@@ -1,24 +1,15 @@
 from membase.api.rest_client import RestConnection
-import urllib
-from security.rbacmain import rbacmain
-import json
 from remote.remote_util import RemoteMachineShellConnection
-from security.auditmain import audit
-import commands
-import socket
-import fileinput
-import sys
-from subprocess import Popen, PIPE
-from security.rbac_base import RbacBase
 from security.ldap_group import LdapGroup
 from security.ldap_user import LdapUser
 from security.internal_user import InternalUser
+from security.external_user import ExternalUser
 from security.rbacmain import rbacmain
-import urllib2
 import time
 import logger
 log = logger.Logger.get_logger()
 from ast import literal_eval as literal_eval
+
 
 class ldapGroupBase:
     LDAP_GROUP_DN = "ou=Groups,dc=couchbase,dc=com"
@@ -30,6 +21,7 @@ class ldapGroupBase:
     LDAP_ADMIN_PASS = "p@ssword"
     LDAP_GROUP_QUERY =  "ou=Groups,dc=couchbase,dc=com??one?(member=cn=%u,ou=Users,dc=couchbase,dc=com)"
     LDAP_USER_DN_MAPPING = "ou=Users,dc=couchbase,dc=com??one?(uid=%u)"
+    #LDAP_USER_DN_MAPPING = "ou=Users,dc=couchbase,dc=com??one?(uid:caseExactMatch:={0})"
     LDAP_GROUP_QUERY_NESTED_GRP = "ou=Groups,dc=couchbase,dc=com??one?(member=%D)"
 
 
@@ -44,11 +36,14 @@ class ldapGroupBase:
         self.user_list = user_list
 
     #Setup ldap server:
-    
     def create_ldap_config(self,host):
         cli_command = 'setting-ldap'
         options = "--hosts={0} --port={1} --user-dn-query='{2}' --bind-dn='{3}' --bind-password='{4}' --authentication-enabled={5} \
-                 --authorization-enabled={6} --group-query='{7}'".format(self.LDAP_HOST,389,self.LDAP_USER_DN_MAPPING,self.LDAP_ADMIN_USER,self.LDAP_ADMIN_PASS,1,1,self.LDAP_GROUP_QUERY)
+                 --authorization-enabled={6} --group-query='{7}'".format(self.LDAP_HOST,389,
+                                                                         self.LDAP_USER_DN_MAPPING,
+                                                                         self.LDAP_ADMIN_USER,
+                                                                         self.LDAP_ADMIN_PASS,1,1,
+                                                                         self.LDAP_GROUP_QUERY)
         
         log.info (" Value of option is - {0}".format(options))
         remote_client = RemoteMachineShellConnection(host)
@@ -57,8 +52,16 @@ class ldapGroupBase:
         log.info("Output of create ldap config command is {0}".format(output))
         log.info("Error of create ldap config command is {0}".format(error))
     
-    def update_ldap_config(self,options,host):
+    def _update_ldap_config(self,options,host):
         cli_command = 'setting-ldap'
+        options = "--hosts={0} --port={1} --user-dn-query='{2}' --bind-dn='{3}' --bind-password='{4}' --authentication-enabled={5} \
+                         --authorization-enabled={6} --group-query='{7}' --nested-group-max-depth={8} --enable-nested-groups=1"\
+                                                                                 .format(self.LDAP_HOST, 389,
+                                                                                 self.LDAP_USER_DN_MAPPING,
+                                                                                 self.LDAP_ADMIN_USER,
+                                                                                 self.LDAP_ADMIN_PASS, 1, 1,
+                                                                                 self.LDAP_GROUP_QUERY_NESTED_GRP,
+                                                                                 options["nestedGroupsMaxDepth"])
         remote_client = RemoteMachineShellConnection(host)
         output, error = remote_client.execute_couchbase_cli(cli_command=cli_command, \
                         options=options, cluster_host="localhost", user='Administrator', password='password')
@@ -72,7 +75,7 @@ class ldapGroupBase:
         rest.setup_ldap(change_config,'')
 
 
-    #Create external user
+    #Create external ldap user
     def create_grp_usr_ldap(self,user_list,host):
         if type(user_list) == list:
             if len(user_list) == 1:
@@ -82,6 +85,21 @@ class ldapGroupBase:
                     LdapUser(user,'password',host).user_setup()
         else:
             LdapUser(user_list,'password',host).user_setup()
+
+    #Create External User
+    def create_grp_usr_external(self,user_list,host,roles='', groups=''):
+        if len(user_list) == 1:
+            user_list = user_list[0]
+            payload = "name=" + user_list + "&roles=" + roles[0] + "&groups=" + groups
+            ExternalUser(user_list, payload, host).user_setup()
+        else:
+            for index, user in enumerate(user_list):
+                payload = "name=" + user + "&roles=" + roles[index] + "&groups=" + groups
+                ExternalUser(user, payload, host).user_setup()
+
+    def remove_external_user(self, users, host):
+        for user in users:
+            ExternalUser(user_id=user, host=host).delete_user()
 
     #Create internal user
     def create_grp_usr_internal(self,user_list,host,roles='', groups=''):
@@ -103,6 +121,7 @@ class ldapGroupBase:
         if user_creation:
             self.create_grp_usr_ldap(user_list, host)
         LdapGroup().group_setup(group_name, user_list, host)
+
     # Create internal group - Create internal users and then create a group and assign role
     def create_int_group(self, group_name, user_list, grp_role, usr_role, host,  user_creation=True):
         if(len(grp_role)==1):
@@ -217,6 +236,12 @@ class ldapGroupBase:
         content = self.create_grp_usr_internal([user], host, [final_group], group_name)
         return content
 
+    def remove_ext_user_from_grp(self,user,group,host):
+        rest = RestConnection(host)
+
+        payload = 'name=' + user + '&roles=' + roles
+        rest.add_external_user(user,payload)
+
     def remove_int_user_role(self, user, group_name, host):
         rest = RestConnection(host)
         content = rbacmain(master_ip=host)._retrieve_user_roles()
@@ -287,22 +312,27 @@ class ldapGroupBase:
         rest.delete_group(group_name)
 
     #Update LDAP group with add/delete users
-    def update_group(self,group_name,user_name,action,host,user_creation=True):
+    def update_group(self,group_name,user_name,action,host,user_creation=True,external=False):
         if user_creation:
             self.create_grp_usr_ldap(user_name, host)
         LdapGroup().update_user_group(group_name,user_name,action,host,False,group_name)
 
+        if external and action=="Add":
+            ldapGroupBase().create_grp_usr_external(user_name, host,[''],group_name)
+        elif external:
+            ldapGroupBase().remove_external_user(user_name,host)
+
     #Setup LDAP Config for nested ldap group
     def update_ldap_config_nested_grp(self,host,group_depth=10):
-        update_ldap_config = {"nested_groups_enabled": 'true',
-                "nested_groups_max_depth": group_depth,
-                'groups_query': self.LDAP_GROUP_QUERY_NESTED_GRP}
+        update_ldap_config = {"nestedGroupsEnabled": 'true',
+                "nestedGroupsMaxDepth": group_depth,
+                'groupsQuery': self.LDAP_GROUP_QUERY_NESTED_GRP}
         self._update_ldap_config(update_ldap_config, host)
 
     #Create nested LDAP group
     def create_nested_grp(self, group_prefix=None, user_prefix=None, level=None,host=None):
         UsersCreated = []
-        GroupsCreated=[]
+        GroupsCreated = []
         first_user = [user_prefix + str(0)]
         first_group = group_prefix + str(0)
         self.create_grp_usr_ldap(first_user, host)
@@ -340,13 +370,22 @@ class ldapGroupBase:
         status, content = rest.get_group_details(group_name)
         return status, content
 
-    def check_permission(self, user_name, host):
+    def check_permission(self, user_name, host,external=False):
         rest = RestConnection(host)
-        content = rest.check_user_permission(user_name, 'password', 'cluster.admin.internal!all')
-        return content['cluster.admin.internal!all']
+        if external:
+            content = rest.check_user_permission(user_name, 'password', 'cluster.admin.external!all')
+            return content['cluster.admin.external!all']
+        else:
+            content = rest.check_user_permission(user_name, 'password', 'cluster.admin.internal!all')
+            return content['cluster.admin.internal!all']
+
+    def check_permission_external(self, user_name, host):
+        rest = RestConnection(host)
+        content = rest.check_user_permission(user_name, 'password', 'cluster.admin.external!all')
+        return content['cluster.admin.external!all']
 
     # Create LDAP Groups and Users in a sequence for no. of groups and users
-    def create_ldap_grp_user(self, group_no, user_no, roles, host, grp_prefix='grp', usr_prefix='usr'):
+    def create_ldap_grp_user(self, group_no, user_no, roles, host, grp_prefix='grp', usr_prefix='usr',external=False):
         user_list = []
         grp_list = []
         final_usr_list = []
@@ -359,7 +398,7 @@ class ldapGroupBase:
             grp_list.append(grp_prefix + str(i))
             final_usr_list.append(user_list)
             user_list = []
-
+        final_roles = ""
         for i in range(0, int(group_no)):
             if '?' in roles[i]:
                 current_role = roles[i].split('?')
@@ -374,6 +413,11 @@ class ldapGroupBase:
 
             rest = RestConnection(host)
             status, content = rest.add_group_role(grp_list[i], grp_list[i], final_roles, group_dn)
+
+        if external:
+            for i,group in enumerate(grp_list):
+                self.create_grp_usr_external(final_usr_list[i], host, ['']*len(final_usr_list[i]), group)
+
         return grp_list, final_usr_list
 
     def create_multiple_group_user(self, users, user_role, group_no, group_name, group_role, host):
@@ -395,7 +439,7 @@ class ldapGroupBase:
         for index, grp_name in enumerate(group_name):
             ldapGroupBase().create_int_group(grp_name, users[index], group_role[index], final_role[index], host)
         # ldapGroupBase().delete_int_group("testgrp2", host)
-
+        return group_name
     def _return_roles(self, user_role):
         final_roles = ''
         user_role_param = user_role.split(":")
@@ -416,41 +460,3 @@ class ldapGroupBase:
         if (final_roles[0] == ":"):
             final_roles = final_roles[1:]
         return final_roles
-
-
-    def create_ldap_config_rest(self, host):
-        data = {
-                'authenticationEnabled': 'true',
-                'authorizationEnabled': 'true',
-                'cacheValueLifetime': 300000,
-                'encryption': 'false',
-                'groups_query': self.LDAP_GROUP_QUERY,
-                "hosts": self.LDAP_HOST,
-                "maxCacheSize": 10000,
-                "maxParallelConnections": 100,
-                "nestedGroupsEnabled": 'false',
-                "nestedGroupsMaxDepth": 10,
-                "port": self.LDAP_PORT,
-                "bindDN": self.LDAP_ADMIN_USER,
-                "bindPass": self.LDAP_ADMIN_PASS,
-                "requestTimeout": 5000,
-                "serverCertValidation": 'true',
-            }
-        '''
-        import urllib
-        param = urllib.urlencode({"user_dn_mapping": [{'re':'(.+)','query': self.LDAP_USER_DN_MAPPING}]})
-        param = param.split("=")
-        print param
-        '''
-        print "---------------Starting Setting up LDAP ------------"
-        rest = RestConnection(host)
-        rest.setup_ldap(data,'userDNMapping=%5B%7B%22re%22%3A+%22%28.%2B%29%22%2C%22query%22%3A+%22ou%3DUsers%2Cdc%3Dcouchbase%2Cdc%3Dcom%3F%3Fone%3F%28uid%3AcaseExactMatch%3A%3D%7B0%7D%29%22%7D%5D')
-        print "---------------Finished Setting up LDAP ------------"
-    '''
-    "user_dn_mapping": [
-                    {
-                        "re": "(.+)",
-                            "query": self.LDAP_USER_DN_MAPPING
-                    }
-                ]
-    '''

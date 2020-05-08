@@ -147,12 +147,27 @@ class rbacRoles:
     def _bucket_admin_role_expected_incorrect_bucket():
         per_set = {
             "name":"Bucket Admin expected result for incorrect bucket",
-            "permissionSet": {'cluster.bucket[<bucket_name>].recovery!read': True, 'cluster.bucket[<bucket_name>].password!read': False, 'cluster.bucket[<bucket_name>].data!read': False,\
-                              'cluster.pools!read': True, 'cluster.bucket[<bucket_name>]!delete': False, 'cluster.bucket[<bucket_name>].xdcr!execute': False, 'cluster.tasks!read': True,\
-                              'cluster.server_groups!read': True, 'cluster.bucket[<bucket_name>].recovery!write': False, 'cluster.indexes!read': True, 'cluster.nodes!read': True,\
-                              'cluster.xdcr.remote_clusters!read': False, 'cluster.xdcr.settings!read': False, 'cluster.samples!read': True, 'cluster.bucket[<bucket_name>].views!read': False,\
-                              'cluster.bucket[<bucket_name>].data!write': False, u'cluster.bucket[<bucket_name>]!compact': False, 'cluster.bucket[<bucket_name>]!create': False, 'cluster.settings!read': True,\
-                              'cluster.stats!read': True, 'cluster.bucket[<bucket_name>].settings!read': True, 'cluster.bucket[<bucket_name>].views!write': False}
+            "permissionSet": {'cluster.bucket[<bucket_name>].recovery!read': True,
+                              'cluster.bucket[<bucket_name>].password!read': False,
+                              'cluster.bucket[<bucket_name>].data!read': False,\
+                              'cluster.pools!read': True,\
+                              'cluster.bucket[<bucket_name>]!delete': False,
+                              'cluster.bucket[<bucket_name>].xdcr!execute': False,
+                              'cluster.tasks!read': True,\
+                              'cluster.server_groups!read': True,
+                              'cluster.bucket[<bucket_name>].recovery!write': False,
+                              'cluster.indexes!read': True, 'cluster.nodes!read': True,\
+                              'cluster.xdcr.remote_clusters!read': False,
+                              'cluster.xdcr.settings!read': False,
+                              'cluster.samples!read': True,
+                              'cluster.bucket[<bucket_name>].views!read': False,\
+                              'cluster.bucket[<bucket_name>].data!write': False,
+                              'cluster.bucket[<bucket_name>]!compact': False,
+                              'cluster.bucket[<bucket_name>]!create': False,
+                              'cluster.settings!read': True,\
+                              'cluster.stats!read': True,
+                              'cluster.bucket[<bucket_name>].settings!read': True,
+                              'cluster.bucket[<bucket_name>].views!write': False}
         }
         return  per_set
 
@@ -160,10 +175,21 @@ class rbacRoles:
     def _bucket_admin_role_expected_correct_bucket():
         per_set = {
             "name":"Bucket Admin expected result for correct bucket",
-            "permissionSet": {'cluster.bucket[<bucket_name>].recovery!read': True, 'cluster.bucket[<bucket_name>].password!read': False, 'cluster.bucket[<bucket_name>].data!read': False,\
-                              'cluster.pools!read': True, 'cluster.bucket[<bucket_name>]!delete': True, 'cluster.bucket[<bucket_name>].xdcr!execute': True, 'cluster.tasks!read': True,\
-                              'cluster.server_groups!read': True, 'cluster.bucket[<bucket_name>].recovery!write': True, 'cluster.indexes!read': True, 'cluster.nodes!read': True,\
-                              'cluster.xdcr.remote_clusters!read': False, 'cluster.xdcr.settings!read': False, 'cluster.samples!read': True, 'cluster.bucket[<bucket_name>].views!read': False,\
+            "permissionSet": {'cluster.bucket[<bucket_name>].recovery!read': True,
+                              'cluster.bucket[<bucket_name>].password!read': False,
+                              'cluster.bucket[<bucket_name>].data!read': False,\
+                              'cluster.pools!read': True,
+                              'cluster.bucket[<bucket_name>]!delete': True,
+                              'cluster.bucket[<bucket_name>].xdcr!execute': True,
+                              'cluster.tasks!read': True,\
+                              'cluster.server_groups!read': True,
+                              'cluster.bucket[<bucket_name>].recovery!write': True,
+                              'cluster.indexes!read': True,
+                              'cluster.nodes!read': True,\
+                              'cluster.xdcr.remote_clusters!read': False,
+                              'cluster.xdcr.settings!read': False,
+                              'cluster.samples!read': True,
+                              'cluster.bucket[<bucket_name>].views!read': False,\
                               'cluster.bucket[<bucket_name>].data!write': False, u'cluster.bucket[<bucket_name>]!compact': True, 'cluster.settings!read': True,\
                               'cluster.stats!read': True, 'cluster.bucket[<bucket_name>].settings!read': True, 'cluster.bucket[<bucket_name>].views!write': False}
         }
