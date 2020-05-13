@@ -88,7 +88,7 @@ class SecretsMasterBase():
         chan.send(new_password + "\n")
         time.sleep(10)
         resp3= chan.recv(9999).decode('utf-8')
-        if (resp3.decode('utf-8').find('SUCCESS: New master password set') > 0):
+        if (resp3.find('SUCCESS: New master password set') > 0):
             return True
         else:
             return False
